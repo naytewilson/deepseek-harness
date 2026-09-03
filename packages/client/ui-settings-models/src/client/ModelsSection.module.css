@@ -518,6 +518,33 @@
   line-height: 18px;
 }
 
+/* One row's reasoning levels span the advanced fold's full width: a
+   borderless group of one checkbox per level, wrapping onto as many lines
+   as the fold needs. */
+.reasoningLevels {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.reasoningLevels legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.reasoningLevel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
 .modelEmpty {
   padding: 12px;
   border: 1px dashed var(--dsw-alias-border-l3);
