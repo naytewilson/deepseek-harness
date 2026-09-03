@@ -117,6 +117,40 @@ function IconTrash(): ReactNode {
 type CapacityField = 'contextWindow' | 'maxTokens'
 
 /**
+ * Selectable reasoning levels, in escalation order. This mirrors
+ * `THINKING_LEVELS` in `packages/llm/llm-pi-ai/src/catalog.ts` — the keys a
+ * `reasoningEfforts` dict may declare (pi-ai's `ModelThinkingLevel`) — rather
+ * than a UI-owned enum, so the levels offered here and the levels resolution
+ * accepts cannot drift apart unnoticed. A client package cannot import the
+ * host adapter, hence the mirror with its contract cited; a level the mirror
+ * omits stays unoffered here while `settings.yaml` still accepts it.
+ */
+const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
+/** One selectable reasoning level. */
+type ReasoningLevel = (typeof REASONING_LEVELS)[number]
+
+/**
+ * Display spelling of one level, matching the adapter's own effort names
+ * (`resolveModelInfo().reasoning.efforts[].name` capitalizes the same way).
+ */
+function levelName(level: ReasoningLevel): string {
+  return `${level.charAt(0).toUpperCase()}${level.slice(1)}`
+}
+
+/**
+ * A row's declared reasoning efforts, or `undefined` when the row declares
+ * none — the field absent (inherit the catalog's capability) and `false`
+ * (a non-reasoning model) alike, since neither offers a level to show.
+ */
+function effortsOf(model: ModelDraft): Record<string, unknown> | undefined {
+  const efforts = model['reasoningEfforts']
+  return typeof efforts === 'object' && efforts !== null && !Array.isArray(efforts)
+    ? efforts as Record<string, unknown>
+    : undefined
+}
+
+/**
  * What an empty capacity field is worth, shown as its placeholder so a row left
  * blank does not read as a model with no capacity at all.
  *
@@ -151,6 +185,56 @@ function adopt(candidate: DiscoveredModelView): ModelDraft {
     ...candidate.contextWindow === undefined ? {} : { contextWindow: candidate.contextWindow },
     ...candidate.maxTokens === undefined ? {} : { maxTokens: candidate.maxTokens },
   }
+}
+
+/** Props of {@link ReasoningLevelsEditor}. */
+interface ReasoningLevelsEditorProps {
+  /** The row's declared efforts; `undefined` while the row declares none. */
+  efforts: Record<string, unknown> | undefined
+  /** Zero-based row position, carried in each checkbox's accessible name. */
+  index: number
+  /** Section copy. */
+  t: (key: keyof typeof en) => string
+  /** Disable every control. */
+  disabled: boolean
+  /** Toggle one level's declaration. */
+  onToggle: (level: ReasoningLevel) => void
+}
+
+/**
+ * One row's generic reasoning-level toggles. Each key of the row's
+ * `reasoningEfforts` dict is a level selectors offer; the editor only adds or
+ * drops keys and never rewrites a wire spelling it did not set, so a
+ * hand-written rename (`max: ultra`) or the valueless `off` (`null`,
+ * "supported, send nothing") round-trips untouched. A renamed level still
+ * reads as offered and shows its mapping; toggling it off drops the key.
+ * @param props - the row's efforts, position, copy, and toggle verb.
+ * @returns the reasoning-level checkbox group.
+ */
+function ReasoningLevelsEditor(props: ReasoningLevelsEditorProps): ReactNode {
+  const { efforts, index, t, disabled, onToggle } = props
+  return (
+    <fieldset className={styles['reasoningLevels']}>
+      <legend className={styles['modelFieldLabel']}>{t('modelReasoningLevels')}</legend>
+      {REASONING_LEVELS.map((level) => {
+        const wire = efforts?.[level]
+        const offered = wire !== undefined
+        const renamed = typeof wire === 'string' && wire !== level
+        return (
+          <label key={level} className={styles['reasoningLevel']}>
+            <input
+              type="checkbox"
+              checked={offered}
+              aria-label={`${levelName(level)} ${index + 1}`}
+              disabled={disabled}
+              onChange={() => { onToggle(level) }}
+            />
+            <span>{`${levelName(level)}${renamed ? ` → ${wire as string}` : ''}`}</span>
+          </label>
+        )
+      })}
+    </fieldset>
+  )
 }
 
 /**
@@ -210,7 +294,27 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
-  const patch = (index: number, next: Record<string, string | number | undefined>): void => {
+  /**
+   * Toggle one reasoning level on a row. Enabling writes the identity
+   * spelling — the level itself, except `off`, which is written valueless
+   * (`null`: "supported, send nothing", the spelling resolution reads that
+   * way). Disabling drops the key; an emptied dict drops the field with it,
+   * since resolution refuses an empty declaration and absence means "no
+   * declaration" (inherit the catalog's capability, or none for a
+   * hand-declared model). A `false` marker (non-reasoning model) is replaced
+   * by the dict the same way an absent field is.
+   */
+  const toggleEffort = (index: number, level: ReasoningLevel): void => {
+    const current = effortsOf(models[index] ?? {}) ?? {}
+    if (level in current) {
+      const rest = Object.fromEntries(Object.entries(current).filter(([key]) => key !== level))
+      patch(index, { reasoningEfforts: Object.keys(rest).length === 0 ? undefined : rest })
+    } else {
+      patch(index, { reasoningEfforts: { ...current, [level]: level === 'off' ? null : level } })
+    }
+  }
+
+  const patch = (index: number, next: Record<string, unknown>): void => {
     onChange(models.map((model, at) => {
       if (at !== index) return model
       // Rebuilt rather than spread over: an emptied optional field has to leave
@@ -429,6 +533,16 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
                     onChange={(event) => { editCapacity(index, 'maxTokens', event.target.value) }}
                   />
                 </label>
+                {/* The row's selectable reasoning levels. Wire spellings beyond
+                    the identity mapping stay owned by `settings.yaml` (see the
+                    page hint); this group only adds or drops offered levels. */}
+                <ReasoningLevelsEditor
+                  efforts={effortsOf(model)}
+                  index={index}
+                  t={t}
+                  disabled={disabled}
+                  onToggle={(level) => { toggleEffort(index, level) }}
+                />
               </div>
             )
             : null}
