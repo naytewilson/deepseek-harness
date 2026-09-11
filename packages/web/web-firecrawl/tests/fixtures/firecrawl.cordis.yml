@@ -1,0 +1,23 @@
+# Explicit opt-in composition for the self-hosted Firecrawl provider.
+# The base bundle's DeepSeek search row is disabled so a missing Firecrawl
+# service cannot silently fall back to a paid/model-backed search route.
+- id: web
+  config:
+    searchProvider: firecrawl
+    fetchProvider: firecrawl
+
+- id: web-search-deepseek
+  disabled: true
+
+- insert:
+    - id: web-firecrawl
+      name: '@deepseek-ai/dsh-web-firecrawl'
+      config:
+        baseURL: !!js process.env.FIRECRAWL_BASE_URL
+
+- id: tool-web
+  config:
+    search: true
+    fetch: true
+    searchTimeoutMs: 60000
+    fetchTimeoutMs: 60000
